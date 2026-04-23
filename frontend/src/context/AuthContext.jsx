@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect } from 'react'
 
 const AuthContext = createContext(null)
 
-const API = '/api'
+const API = import.meta.env.VITE_API_URL || '/api'
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
@@ -61,7 +61,7 @@ export function AuthProvider({ children }) {
     const res = await fetch(`${API}/auth/connect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ invite_code })
+      body: JSON.stringify({ invite_code: invite_code.toUpperCase().trim() })
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error)
