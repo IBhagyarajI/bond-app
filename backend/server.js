@@ -122,20 +122,18 @@ app.post("/api/auth/connect", authenticate, (req, res) => {
 // Feature routes
 app.use("/api/memories", authenticate, require("./routes/memories"));
 app.use("/api/bucket",   authenticate, require("./routes/bucketlist"));
-// Public AI health check (no login needed)
+// Public AI health check — lists available models
 app.get("/api/ai/health", async (req, res) => {
   try {
     const key = process.env.GOOGLE_API_KEY;
     if (!key) return res.status(500).json({ ok: false, error: "GOOGLE_API_KEY not set on Render" });
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${key}`;
-    const r = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts: [{ text: "Say: AI is working" }] }] })
-    });
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
     const d = await r.json();
     if (!r.ok) return res.status(500).json({ ok: false, error: d?.error?.message });
-    res.json({ ok: true, response: d.candidates?.[0]?.content?.parts?.[0]?.text });
+    const names = d.models
+      .filter(m => m.supportedGenerationMethods?.includes("generateContent"))
+      .map(m => m.name);
+    res.json({ ok: true, available_models: names });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
