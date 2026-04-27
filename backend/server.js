@@ -124,8 +124,23 @@ app.use("/api/memories", authenticate, require("./routes/memories"));
 app.use("/api/bucket",   authenticate, require("./routes/bucketlist"));
 app.use("/api/ai",       authenticate, require("./routes/ai"));
 
-// Health check
+// Health check (public)
 app.get("/health", (req, res) => res.json({ status: "ok" }));
+
+// AI health check (public — no token needed)
+app.get("/api/ai/health", async (req, res) => {
+  try {
+    const key = process.env.GOOGLE_API_KEY;
+    if (!key) return res.status(500).json({ ok: false, error: "GOOGLE_API_KEY is not set on Render" });
+    const { GoogleGenerativeAI } = require("@google/generative-ai");
+    const genAI = new GoogleGenerativeAI(key);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+    const result = await model.generateContent("Say exactly three words: AI is working");
+    res.json({ ok: true, response: result.response.text() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 
 // Catch-all — always JSON, never HTML
 app.use((req, res) => res.status(404).json({ error: "Not found: " + req.method + " " + req.path }));
