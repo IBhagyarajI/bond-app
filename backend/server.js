@@ -134,7 +134,7 @@ app.get("/api/ai/health", async (req, res) => {
     if (!key) return res.status(500).json({ ok: false, error: "GOOGLE_API_KEY is not set on Render" });
     const { GoogleGenerativeAI } = require("@google/generative-ai");
     const genAI = new GoogleGenerativeAI(key);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const result = await model.generateContent("Say exactly three words: AI is working");
     res.json({ ok: true, response: result.response.text() });
   } catch (err) {
