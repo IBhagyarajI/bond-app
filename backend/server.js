@@ -122,20 +122,19 @@ app.post("/api/auth/connect", authenticate, (req, res) => {
 // Feature routes
 app.use("/api/memories", authenticate, require("./routes/memories"));
 app.use("/api/bucket",   authenticate, require("./routes/bucketlist"));
-// Public AI health check
+// Public AI health check (Groq)
 app.get("/api/ai/health", async (req, res) => {
   try {
-    const key = process.env.GOOGLE_API_KEY;
-    if (!key) return res.status(500).json({ ok: false, error: "GOOGLE_API_KEY not set on Render" });
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
-    const r = await fetch(url, {
+    const key = process.env.GROQ_API_KEY;
+    if (!key) return res.status(500).json({ ok: false, error: "GROQ_API_KEY not set on Render" });
+    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts: [{ text: "Say exactly: AI is working" }] }] })
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
+      body: JSON.stringify({ model: "llama3-8b-8192", messages: [{ role: "user", content: "Say exactly three words: AI is working" }], max_tokens: 20 })
     });
     const d = await r.json();
     if (!r.ok) return res.status(500).json({ ok: false, error: d?.error?.message });
-    res.json({ ok: true, response: d.candidates?.[0]?.content?.parts?.[0]?.text });
+    res.json({ ok: true, response: d.choices?.[0]?.message?.content });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

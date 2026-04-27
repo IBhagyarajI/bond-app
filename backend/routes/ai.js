@@ -2,42 +2,33 @@ const express = require("express");
 const router = express.Router();
 const { db, getBondId } = require("../db");
 
-// Call Gemini directly via HTTP — no SDK needed
-async function askGemini(prompt) {
-  const key = process.env.GOOGLE_API_KEY;
-  if (!key) throw new Error("GOOGLE_API_KEY is not set on Render");
+// Call Groq API directly via fetch — free, fast, no quota issues
+async function askGroq(prompt) {
+  const key = process.env.GROQ_API_KEY;
+  if (!key) throw new Error("GROQ_API_KEY is not set on Render. Get one free at console.groq.com");
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
-
-  const res = await fetch(url, {
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${key}`
+    },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }]
+      model: "llama3-8b-8192",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 500,
+      temperature: 0.8
     })
   });
 
   const data = await res.json();
-
   if (!res.ok) {
-    const msg = data?.error?.message || JSON.stringify(data);
-    throw new Error(`Gemini API error ${res.status}: ${msg}`);
+    throw new Error(`Groq error ${res.status}: ${data?.error?.message || JSON.stringify(data)}`);
   }
-
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response from AI";
+  return data.choices?.[0]?.message?.content || "No response from AI";
 }
 
-// ── Public AI health check ───────────────────────────────────────────────────
-router.get("/health", async (req, res) => {
-  try {
-    const text = await askGemini("Say exactly three words: AI is working");
-    res.json({ ok: true, response: text });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-// ── Daily check-in ───────────────────────────────────────────────────────────
+// ── Daily check-in ────────────────────────────────────────────────────────────
 router.post("/checkin", async (req, res) => {
   try {
     const { mood, message } = req.body;
@@ -64,9 +55,9 @@ Memories together: ${memoriesCount}
 Bucket list completed: ${bucketCount}
 Today's mood: ${moodLabels[mood] || mood}/5
 Message: "${message || "No message"}"
-Write a warm, personal response in 2-3 short paragraphs that acknowledges their mood, says something meaningful about their friendship, and gives one small actionable suggestion to connect today.`;
+Write a warm, personal response in 2-3 short paragraphs that acknowledges their mood genuinely, says something meaningful about their friendship journey, and gives one small actionable suggestion to connect today. Be human and avoid generic advice.`;
 
-    const aiText = await askGemini(prompt);
+    const aiText = await askGroq(prompt);
 
     if (user.friend_id) {
       const bondId = getBondId(user.id, user.friend_id);
@@ -81,7 +72,7 @@ Write a warm, personal response in 2-3 short paragraphs that acknowledges their 
   }
 });
 
-// ── Support mode ─────────────────────────────────────────────────────────────
+// ── Support mode ──────────────────────────────────────────────────────────────
 router.post("/support", async (req, res) => {
   try {
     const { situation, friend_name } = req.body;
@@ -95,7 +86,7 @@ ${user.name} wants to support their close friend ${name} who is going through: "
 Give 4-5 specific, actionable, numbered ways ${user.name} can show up for ${name} right now.
 Be specific, warm, and practical. Avoid clichés.`;
 
-    const aiText = await askGemini(prompt);
+    const aiText = await askGroq(prompt);
     res.json({ response: aiText });
   } catch (err) {
     console.error("Support error:", err.message);
@@ -124,14 +115,20 @@ router.get("/insights", async (req, res) => {
 
     const prompt = `You are the AI of "Bond" — a friendship companion app.
 ${user.name} and ${friend.name} have been bonded for ${bondDays} days.
-They have ${memories.length} memories, ${bucket.filter(b=>b.completed).length} of ${bucket.length} bucket items done, average mood ${avgMood || "N/A"}/5.
-Recent memories: ${memories.slice(0,3).map(m=>m.title).join(", ") || "none yet"}.
-Write a beautiful 2-3 sentence friendship insight about what makes this bond special, then add 2 "This week, try:" suggestions.`;
+They have ${memories.length} memories, ${bucket.filter(b => b.completed).length} of ${bucket.length} bucket items done, average mood ${avgMood || "N/A"}/5.
+Recent memories: ${memories.slice(0, 3).map(m => m.title).join(", ") || "none yet"}.
+Write a beautiful 2-3 sentence friendship insight about what makes this bond special, then add 2 "This week, try:" suggestions. Be warm and personal.`;
 
-    const aiText = await askGemini(prompt);
+    const aiText = await askGroq(prompt);
     res.json({
       response: aiText,
-      stats: { bondDays, memoriesCount: memories.length, bucketCompleted: bucket.filter(b=>b.completed).length, bucketTotal: bucket.length, avgMood }
+      stats: {
+        bondDays,
+        memoriesCount: memories.length,
+        bucketCompleted: bucket.filter(b => b.completed).length,
+        bucketTotal: bucket.length,
+        avgMood
+      }
     });
   } catch (err) {
     console.error("Insights error:", err.message);
