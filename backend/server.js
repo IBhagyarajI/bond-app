@@ -130,7 +130,7 @@ app.get("/api/ai/health", async (req, res) => {
     const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
-      body: JSON.stringify({ model: "llama3-8b-8192", messages: [{ role: "user", content: "Say exactly three words: AI is working" }], max_tokens: 20 })
+      body: JSON.stringify({ model: "llama-3.1-8b-instant", messages: [{ role: "user", content: "Say exactly three words: AI is working" }], max_tokens: 20 })
     });
     const d = await r.json();
     if (!r.ok) return res.status(500).json({ ok: false, error: d?.error?.message });
