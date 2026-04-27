@@ -2,27 +2,35 @@ const express = require("express");
 const router = express.Router();
 const { db, getBondId } = require("../db");
 
-// Lazy-load Gemini so a missing key gives a clear error
-function getGenAI() {
-  const key = process.env.GOOGLE_API_KEY;
-  if (!key) throw new Error("GOOGLE_API_KEY is not set in environment variables. Add it on Render.");
-  const { GoogleGenerativeAI } = require("@google/generative-ai");
-  return new GoogleGenerativeAI(key);
-}
-
+// Call Gemini directly via HTTP — no SDK needed
 async function askGemini(prompt) {
-  const genAI = getGenAI();
-  const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-  const result = await model.generateContent(prompt);
-  return result.response.text();
+  const key = process.env.GOOGLE_API_KEY;
+  if (!key) throw new Error("GOOGLE_API_KEY is not set on Render");
+
+  const url = `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${key}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }]
+    })
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    const msg = data?.error?.message || JSON.stringify(data);
+    throw new Error(`Gemini API error ${res.status}: ${msg}`);
+  }
+
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response from AI";
 }
 
-// ── Health check for AI ──────────────────────────────────────────────────────
+// ── Public AI health check ───────────────────────────────────────────────────
 router.get("/health", async (req, res) => {
   try {
-    const key = process.env.GOOGLE_API_KEY;
-    if (!key) return res.status(500).json({ ok: false, error: "GOOGLE_API_KEY not set on Render" });
-    const text = await askGemini("Say exactly: AI is working");
+    const text = await askGemini("Say exactly three words: AI is working");
     res.json({ ok: true, response: text });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -49,23 +57,14 @@ router.post("/checkin", async (req, res) => {
 
     const moodLabels = ["", "Really down", "Not great", "Okay", "Pretty good", "Amazing"];
     const prompt = `You are a warm, emotionally intelligent friendship companion for the app "Bond".
-
 User: ${user.name}
 Their friend: ${friend ? friend.name : "not bonded yet"}
 Bond duration: ${bondDays} days
 Memories together: ${memoriesCount}
 Bucket list completed: ${bucketCount}
-
-Today's check-in:
-Mood: ${moodLabels[mood] || mood}/5
+Today's mood: ${moodLabels[mood] || mood}/5
 Message: "${message || "No message"}"
-
-Write a warm, personal response (2-3 short paragraphs max) that:
-1. Acknowledges their mood genuinely and specifically
-2. Says something meaningful about their friendship journey
-3. Gives one small, actionable suggestion to connect with ${friend ? friend.name : "their friend"} today
-
-Be human, warm, and avoid generic advice.`;
+Write a warm, personal response in 2-3 short paragraphs that acknowledges their mood, says something meaningful about their friendship, and gives one small actionable suggestion to connect today.`;
 
     const aiText = await askGemini(prompt);
 
@@ -77,7 +76,7 @@ Be human, warm, and avoid generic advice.`;
 
     res.json({ response: aiText });
   } catch (err) {
-    console.error("Checkin AI error:", err.message);
+    console.error("Checkin error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -92,18 +91,14 @@ router.post("/support", async (req, res) => {
     const name = friend_name || (friend ? friend.name : "your friend");
 
     const prompt = `You are a compassionate friendship advisor for the app "Bond".
-
-${user.name} wants to support their close friend ${name} who is going through:
-"${situation}"
-
-Give 4-5 specific, actionable ways ${user.name} can show up for ${name} right now.
-Format as a simple numbered list. Be specific, warm, and practical.
-Include both immediate actions and longer-term gestures. Avoid clichés.`;
+${user.name} wants to support their close friend ${name} who is going through: "${situation}"
+Give 4-5 specific, actionable, numbered ways ${user.name} can show up for ${name} right now.
+Be specific, warm, and practical. Avoid clichés.`;
 
     const aiText = await askGemini(prompt);
     res.json({ response: aiText });
   } catch (err) {
-    console.error("Support AI error:", err.message);
+    console.error("Support error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -127,32 +122,19 @@ router.get("/insights", async (req, res) => {
       ? (checkins.reduce((s, c) => s + c.mood, 0) / checkins.length).toFixed(1)
       : null;
 
-    const prompt = `You are the AI of the app "Bond" — a friendship companion.
-
-${user.name} and ${friend.name}'s friendship data:
-- Bonded for: ${bondDays} days
-- Memories captured: ${memories.length}
-- Bucket list items: ${bucket.length} total, ${bucket.filter(b => b.completed).length} completed
-- Average mood: ${avgMood || "N/A"}/5
-- Recent memories: ${memories.slice(0, 3).map(m => m.title).join(", ") || "none yet"}
-
-Write a beautiful, poetic 2-3 sentence "Friendship Insight" — a snapshot of what makes this bond special.
-Then add 2 quick "This week, try:" suggestions specific to their data.
-Be genuinely warm and personal, not generic.`;
+    const prompt = `You are the AI of "Bond" — a friendship companion app.
+${user.name} and ${friend.name} have been bonded for ${bondDays} days.
+They have ${memories.length} memories, ${bucket.filter(b=>b.completed).length} of ${bucket.length} bucket items done, average mood ${avgMood || "N/A"}/5.
+Recent memories: ${memories.slice(0,3).map(m=>m.title).join(", ") || "none yet"}.
+Write a beautiful 2-3 sentence friendship insight about what makes this bond special, then add 2 "This week, try:" suggestions.`;
 
     const aiText = await askGemini(prompt);
     res.json({
       response: aiText,
-      stats: {
-        bondDays,
-        memoriesCount: memories.length,
-        bucketCompleted: bucket.filter(b => b.completed).length,
-        bucketTotal: bucket.length,
-        avgMood
-      }
+      stats: { bondDays, memoriesCount: memories.length, bucketCompleted: bucket.filter(b=>b.completed).length, bucketTotal: bucket.length, avgMood }
     });
   } catch (err) {
-    console.error("Insights AI error:", err.message);
+    console.error("Insights error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
