@@ -1,87 +1,92 @@
 const express = require("express");
 const router = express.Router();
-const { db, getBondId } = require("../db");
+const { client, getBondId } = require("../db");
 
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.userId);
-    if (!user.friend_id)
-      return res.status(400).json({ error: "You are not bonded with anyone yet" });
+    const userRes = await client.execute({ sql: "SELECT * FROM users WHERE id = ?", args: [req.userId] });
+    const user = userRes.rows[0];
+    if (!user?.friend_id) return res.status(400).json({ error: "Not bonded yet" });
 
-    const bondId = getBondId(user.id, user.friend_id);
-    const items = db
-      .prepare(`SELECT b.*, u.name as creator_name, u.avatar_color as creator_color
-                FROM bucket_list b JOIN users u ON b.created_by = u.id
-                WHERE b.bond_id = ? ORDER BY b.completed ASC, b.created_at DESC`)
-      .all(bondId);
-
-    res.json(items);
+    const bondId = getBondId(Number(user.id), Number(user.friend_id));
+    const result = await client.execute({
+      sql: `SELECT b.*, u.name as creator_name, u.avatar_color as creator_color
+            FROM bucket_list b JOIN users u ON b.created_by = u.id
+            WHERE b.bond_id = ? ORDER BY b.completed ASC, b.created_at DESC`,
+      args: [bondId]
+    });
+    res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ error: err.message });
   }
 });
 
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
   try {
     const { title, description, category } = req.body;
     if (!title) return res.status(400).json({ error: "Title is required" });
 
-    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.userId);
-    if (!user.friend_id)
-      return res.status(400).json({ error: "You are not bonded with anyone yet" });
+    const userRes = await client.execute({ sql: "SELECT * FROM users WHERE id = ?", args: [req.userId] });
+    const user = userRes.rows[0];
+    if (!user?.friend_id) return res.status(400).json({ error: "Not bonded yet" });
 
-    const bondId = getBondId(user.id, user.friend_id);
-    const result = db
-      .prepare(`INSERT INTO bucket_list (bond_id, created_by, title, description, category)
-                VALUES (?, ?, ?, ?, ?)`)
-      .run(bondId, req.userId, title, description || null, category || "adventure");
+    const bondId = getBondId(Number(user.id), Number(user.friend_id));
+    const result = await client.execute({
+      sql: `INSERT INTO bucket_list (bond_id, created_by, title, description, category) VALUES (?, ?, ?, ?, ?)`,
+      args: [bondId, req.userId, title, description || null, category || "adventure"]
+    });
 
-    const item = db.prepare(`SELECT b.*, u.name as creator_name, u.avatar_color as creator_color
-                             FROM bucket_list b JOIN users u ON b.created_by = u.id
-                             WHERE b.id = ?`).get(result.lastInsertRowid);
-    res.json(item);
+    const item = await client.execute({
+      sql: `SELECT b.*, u.name as creator_name, u.avatar_color as creator_color
+            FROM bucket_list b JOIN users u ON b.created_by = u.id WHERE b.id = ?`,
+      args: [Number(result.lastInsertRowid)]
+    });
+    res.json(item.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ error: err.message });
   }
 });
 
-router.patch("/:id/complete", (req, res) => {
+router.patch("/:id/complete", async (req, res) => {
   try {
-    const item = db.prepare("SELECT * FROM bucket_list WHERE id = ?").get(req.params.id);
+    const itemRes = await client.execute({ sql: "SELECT * FROM bucket_list WHERE id = ?", args: [req.params.id] });
+    const item = itemRes.rows[0];
     if (!item) return res.status(404).json({ error: "Item not found" });
 
-    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.userId);
-    const bondId = getBondId(user.id, user.friend_id);
-    if (item.bond_id !== bondId)
-      return res.status(403).json({ error: "Not your bucket list" });
+    const userRes = await client.execute({ sql: "SELECT * FROM users WHERE id = ?", args: [req.userId] });
+    const user = userRes.rows[0];
+    const bondId = getBondId(Number(user.id), Number(user.friend_id));
+    if (item.bond_id !== bondId) return res.status(403).json({ error: "Not your bucket list" });
 
     const now = new Date().toISOString();
-    db.prepare("UPDATE bucket_list SET completed = 1, completed_at = ? WHERE id = ?")
-      .run(now, req.params.id);
+    await client.execute({ sql: "UPDATE bucket_list SET completed = 1, completed_at = ? WHERE id = ?", args: [now, req.params.id] });
 
-    const updated = db.prepare(`SELECT b.*, u.name as creator_name, u.avatar_color as creator_color
-                                FROM bucket_list b JOIN users u ON b.created_by = u.id
-                                WHERE b.id = ?`).get(req.params.id);
-    res.json(updated);
+    const updated = await client.execute({
+      sql: `SELECT b.*, u.name as creator_name, u.avatar_color as creator_color
+            FROM bucket_list b JOIN users u ON b.created_by = u.id WHERE b.id = ?`,
+      args: [req.params.id]
+    });
+    res.json(updated.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ error: err.message });
   }
 });
 
-router.delete("/:id", (req, res) => {
+router.delete("/:id", async (req, res) => {
   try {
-    const item = db.prepare("SELECT * FROM bucket_list WHERE id = ?").get(req.params.id);
-    if (!item) return res.status(404).json({ error: "Item not found" });
+    const itemRes = await client.execute({ sql: "SELECT * FROM bucket_list WHERE id = ?", args: [req.params.id] });
+    const item = itemRes.rows[0];
+    if (!item) return res.status(404).json({ error: "Not found" });
 
-    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.userId);
-    const bondId = getBondId(user.id, user.friend_id);
-    if (item.bond_id !== bondId)
-      return res.status(403).json({ error: "Not your bucket list" });
+    const userRes = await client.execute({ sql: "SELECT * FROM users WHERE id = ?", args: [req.userId] });
+    const user = userRes.rows[0];
+    const bondId = getBondId(Number(user.id), Number(user.friend_id));
+    if (item.bond_id !== bondId) return res.status(403).json({ error: "Not your item" });
 
-    db.prepare("DELETE FROM bucket_list WHERE id = ?").run(req.params.id);
+    await client.execute({ sql: "DELETE FROM bucket_list WHERE id = ?", args: [req.params.id] });
     res.json({ message: "Deleted" });
   } catch (err) {
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ error: err.message });
   }
 });
 
