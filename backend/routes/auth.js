@@ -1,136 +1,126 @@
 const express = require("express");
 const router = express.Router();
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const { v4: uuidv4 } = require("uuid");
-const { db } = require("../db");
+const crypto = require("crypto");
+const { client } = require("../db");
 
-const JWT_SECRET = process.env.JWT_SECRET || "bond_secret_key_change_in_production";
+// Send email via Resend
+async function sendResetEmail(toEmail, toName, resetUrl) {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) throw new Error("RESEND_API_KEY not set on Render");
 
-const AVATAR_COLORS = [
-  "#e8b86d", "#e87d6d", "#6de8b8", "#6d9ee8", "#c46de8",
-  "#e86dc4", "#8de86d", "#e8d36d"
-];
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${key}`
+    },
+    body: JSON.stringify({
+      from: "Bond App <onboarding@resend.dev>",
+      to: [toEmail],
+      subject: "Reset your Bond password 🔗",
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;">
+          <h1 style="color:#e8b86d;font-size:28px;margin-bottom:4px;">🔗 Bond</h1>
+          <p style="color:#333;font-size:15px;">Hi ${toName},</p>
+          <p style="color:#555;line-height:1.7;font-size:15px;">
+            Someone requested a password reset for your Bond account.
+            Click the button below to set a new password.
+          </p>
+          <div style="margin:28px 0;">
+            <a href="${resetUrl}"
+               style="display:inline-block;padding:14px 32px;background:#e8b86d;
+                      color:#0d0d14;border-radius:50px;text-decoration:none;
+                      font-weight:bold;font-size:15px;">
+              Reset My Password
+            </a>
+          </div>
+          <p style="color:#999;font-size:13px;">
+            ⏱ This link expires in <strong>1 hour</strong>.<br/>
+            If you didn't request this, just ignore this email — nothing will change.
+          </p>
+          <p style="color:#ccc;font-size:12px;border-top:1px solid #eee;padding-top:16px;margin-top:24px;">
+            — The Bond App · Made with ♥ for close friendships
+          </p>
+        </div>
+      `
+    })
+  });
 
-// Register
-router.post("/register", async (req, res) => {
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.message || data?.name || JSON.stringify(data));
+  return data;
+}
+
+// ── POST /api/auth/forgot-password ────────────────────────────────────────────
+router.post("/forgot-password", async (req, res) => {
   try {
-    const { name, email, password } = req.body;
-    if (!name || !email || !password)
-      return res.status(400).json({ error: "All fields are required" });
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required" });
 
-    const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
-    if (existing)
-      return res.status(409).json({ error: "Email already registered" });
+    const result = await client.execute({ sql: "SELECT * FROM users WHERE email = ?", args: [email] });
+    const user = result.rows[0];
+
+    // Always say success — never reveal if email exists (security best practice)
+    if (!user) return res.json({ message: "If that email exists, a reset link has been sent." });
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    await client.execute({ sql: "DELETE FROM password_resets WHERE email = ?", args: [email] });
+    await client.execute({
+      sql: "INSERT INTO password_resets (email, token, expires_at) VALUES (?, ?, ?)",
+      args: [email, token, expiresAt]
+    });
+
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
+
+    await sendResetEmail(email, user.name, resetUrl);
+    res.json({ message: "If that email exists, a reset link has been sent." });
+  } catch (err) {
+    console.error("Forgot password error:", err.message);
+    res.status(500).json({ error: "Could not send email: " + err.message });
+  }
+});
+
+// ── POST /api/auth/reset-password ─────────────────────────────────────────────
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ error: "Token and password required" });
+    if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+
+    const tokenRes = await client.execute({
+      sql: "SELECT * FROM password_resets WHERE token = ? AND used = 0", args: [token]
+    });
+    const record = tokenRes.rows[0];
+    if (!record) return res.status(400).json({ error: "Invalid or already used reset link" });
+    if (new Date(record.expires_at) < new Date()) return res.status(400).json({ error: "Reset link expired. Please request a new one." });
 
     const hashed = await bcrypt.hash(password, 10);
-    const invite_code = uuidv4().slice(0, 8).toUpperCase();
-    const avatar_color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
+    await client.execute({ sql: "UPDATE users SET password = ? WHERE email = ?", args: [hashed, record.email] });
+    await client.execute({ sql: "UPDATE password_resets SET used = 1 WHERE token = ?", args: [token] });
 
-    const result = db
-      .prepare("INSERT INTO users (name, email, password, invite_code, avatar_color) VALUES (?, ?, ?, ?, ?)")
-      .run(name, email, hashed, invite_code, avatar_color);
-
-    const token = jwt.sign({ id: result.lastInsertRowid, name, email }, JWT_SECRET, { expiresIn: "30d" });
-
-    res.json({
-      token,
-      user: { id: result.lastInsertRowid, name, email, invite_code, avatar_color, friend_id: null }
-    });
+    res.json({ message: "Password reset successfully! You can now log in." });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Login
-router.post("/login", async (req, res) => {
+// ── GET /api/auth/verify-reset-token ──────────────────────────────────────────
+router.get("/verify-reset-token", async (req, res) => {
   try {
-    const { email, password } = req.body;
-    const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
-    if (!user) return res.status(401).json({ error: "Invalid credentials" });
-
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) return res.status(401).json({ error: "Invalid credentials" });
-
-    // Get friend info if bonded
-    let friend = null;
-    if (user.friend_id) {
-      friend = db.prepare("SELECT id, name, email, avatar_color FROM users WHERE id = ?").get(user.friend_id);
-    }
-
-    const token = jwt.sign({ id: user.id, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: "30d" });
-
-    res.json({
-      token,
-      user: {
-        id: user.id, name: user.name, email: user.email,
-        invite_code: user.invite_code, avatar_color: user.avatar_color,
-        friend_id: user.friend_id, bond_start_date: user.bond_start_date,
-        friend
-      }
+    const { token } = req.query;
+    if (!token) return res.json({ valid: false });
+    const tokenRes = await client.execute({
+      sql: "SELECT * FROM password_resets WHERE token = ? AND used = 0", args: [token]
     });
+    const record = tokenRes.rows[0];
+    if (!record || new Date(record.expires_at) < new Date()) return res.json({ valid: false });
+    res.json({ valid: true });
   } catch (err) {
-    res.status(500).json({ error: "Server error" });
-  }
-});
-
-// Connect with friend using invite code
-router.post("/connect", (req, res) => {
-  try {
-    const { invite_code } = req.body;
-    const userId = req.userId;
-
-    const currentUser = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
-    if (currentUser.friend_id)
-      return res.status(400).json({ error: "You are already bonded with someone" });
-
-    const friend = db.prepare("SELECT * FROM users WHERE invite_code = ?").get(invite_code);
-    if (!friend) return res.status(404).json({ error: "Invalid invite code" });
-    if (friend.id === userId) return res.status(400).json({ error: "You cannot bond with yourself" });
-    if (friend.friend_id) return res.status(400).json({ error: "This person is already bonded with someone" });
-
-    const bondDate = new Date().toISOString().split("T")[0];
-
-    db.prepare("UPDATE users SET friend_id = ?, bond_start_date = ? WHERE id = ?").run(friend.id, bondDate, userId);
-    db.prepare("UPDATE users SET friend_id = ?, bond_start_date = ? WHERE id = ?").run(userId, bondDate, friend.id);
-
-    const updatedUser = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
-
-    res.json({
-      message: "Bonded successfully!",
-      user: {
-        id: updatedUser.id, name: updatedUser.name, email: updatedUser.email,
-        invite_code: updatedUser.invite_code, avatar_color: updatedUser.avatar_color,
-        friend_id: updatedUser.friend_id, bond_start_date: updatedUser.bond_start_date,
-        friend: { id: friend.id, name: friend.name, email: friend.email, avatar_color: friend.avatar_color }
-      }
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
-  }
-});
-
-// Get current user
-router.get("/me", (req, res) => {
-  try {
-    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.userId);
-    if (!user) return res.status(404).json({ error: "User not found" });
-
-    let friend = null;
-    if (user.friend_id) {
-      friend = db.prepare("SELECT id, name, email, avatar_color FROM users WHERE id = ?").get(user.friend_id);
-    }
-
-    res.json({
-      id: user.id, name: user.name, email: user.email,
-      invite_code: user.invite_code, avatar_color: user.avatar_color,
-      friend_id: user.friend_id, bond_start_date: user.bond_start_date,
-      friend
-    });
-  } catch (err) {
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ valid: false });
   }
 });
 

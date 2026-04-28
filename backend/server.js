@@ -166,3 +166,49 @@ initDB().then(() => {
   console.error("Failed to init DB:", err);
   process.exit(1);
 });
+
+// ── ADMIN: Clear all data (protected by secret key) ──────────────────────────
+app.post("/api/admin/clear-all", async (req, res) => {
+  try {
+    const { secret } = req.body;
+    if (!secret || secret !== process.env.ADMIN_SECRET) {
+      return res.status(403).json({ error: "Wrong secret key" });
+    }
+    await client.executeMultiple(`
+      DELETE FROM checkins;
+      DELETE FROM memories;
+      DELETE FROM bucket_list;
+      DELETE FROM password_resets;
+      UPDATE users SET friend_id = NULL, bond_start_date = NULL;
+    `);
+    res.json({ message: "All data cleared! Users still exist but bonds are broken. You can now re-register or re-bond." });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── ADMIN: Delete one user completely ────────────────────────────────────────
+app.post("/api/admin/delete-user", async (req, res) => {
+  try {
+    const { secret, email } = req.body;
+    if (!secret || secret !== process.env.ADMIN_SECRET) {
+      return res.status(403).json({ error: "Wrong secret key" });
+    }
+    const userRes = await client.execute({ sql: "SELECT * FROM users WHERE email = ?", args: [email] });
+    const user = userRes.rows[0];
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    // Unbond friend if bonded
+    if (user.friend_id) {
+      await client.execute({ sql: "UPDATE users SET friend_id = NULL, bond_start_date = NULL WHERE id = ?", args: [user.friend_id] });
+    }
+
+    // Delete all their data
+    await client.execute({ sql: "DELETE FROM users WHERE id = ?", args: [user.id] });
+    await client.execute({ sql: "DELETE FROM password_resets WHERE email = ?", args: [email] });
+
+    res.json({ message: `User ${email} deleted. They can now re-register with the same email.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});

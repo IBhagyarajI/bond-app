@@ -8,6 +8,9 @@ import Memories from './pages/Memories'
 import BucketList from './pages/BucketList'
 import CheckIn from './pages/CheckIn'
 import Support from './pages/Support'
+import ForgotPassword from './pages/ForgotPassword'
+import Admin from './pages/Admin'
+import ResetPassword from './pages/ResetPassword'
 
 export default function App() {
   return (
@@ -23,6 +26,9 @@ export default function App() {
             <Route path="checkin" element={<CheckIn />} />
             <Route path="support" element={<Support />} />
           </Route>
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/admin" element={<Admin />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </AuthProvider>
