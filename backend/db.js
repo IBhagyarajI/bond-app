@@ -18,6 +18,14 @@ async function initDB() {
       bond_start_date TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL,
+      token TEXT UNIQUE NOT NULL,
+      expires_at DATETIME NOT NULL,
+      used INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
     CREATE TABLE IF NOT EXISTS memories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       bond_id TEXT NOT NULL,
@@ -25,6 +33,7 @@ async function initDB() {
       title TEXT NOT NULL,
       description TEXT,
       image_url TEXT,
+      images TEXT DEFAULT '[]',
       memory_date TEXT,
       emoji TEXT DEFAULT '✨',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
