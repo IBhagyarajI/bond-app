@@ -157,15 +157,6 @@ app.use("/api/bucket",   authenticate, require("./routes/bucketlist"));
 app.use("/api/ai",       authenticate, require("./routes/ai"));
 
 app.get("/health", (req, res) => res.json({ status: "ok" }));
-app.use((req, res) => res.status(404).json({ error: "Not found: " + req.method + " " + req.path }));
-
-// ── START ─────────────────────────────────────────────────────────────────────
-initDB().then(() => {
-  app.listen(PORT, () => console.log(`🔗 Bond API running on http://localhost:${PORT}`));
-}).catch(err => {
-  console.error("Failed to init DB:", err);
-  process.exit(1);
-});
 
 // ── ADMIN: Clear all data (protected by secret key) ──────────────────────────
 app.post("/api/admin/clear-all", async (req, res) => {
@@ -212,3 +203,14 @@ app.post("/api/admin/delete-user", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+app.use((req, res) => res.status(404).json({ error: "Not found: " + req.method + " " + req.path }));
+
+// ── START ─────────────────────────────────────────────────────────────────────
+initDB().then(() => {
+  app.listen(PORT, () => console.log(`🔗 Bond API running on http://localhost:${PORT}`));
+}).catch(err => {
+  console.error("Failed to init DB:", err);
+  process.exit(1);
+});
+
