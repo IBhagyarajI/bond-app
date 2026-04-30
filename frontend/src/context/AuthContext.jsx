@@ -1,8 +1,30 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 
 const AuthContext = createContext(null)
-
 const API = import.meta.env.VITE_API_URL || '/api'
+
+// Storage helpers — sessionStorage = gone when browser closes, localStorage = persists
+function saveToken(token, remember) {
+  if (remember) {
+    localStorage.setItem('bond_token', token)
+    localStorage.setItem('bond_remember', 'true')
+    sessionStorage.removeItem('bond_token')
+  } else {
+    sessionStorage.setItem('bond_token', token)
+    localStorage.removeItem('bond_token')
+    localStorage.removeItem('bond_remember')
+  }
+}
+
+function getToken() {
+  return localStorage.getItem('bond_token') || sessionStorage.getItem('bond_token')
+}
+
+function clearToken() {
+  localStorage.removeItem('bond_token')
+  localStorage.removeItem('bond_remember')
+  sessionStorage.removeItem('bond_token')
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
@@ -10,7 +32,7 @@ export function AuthProvider({ children }) {
   const [toast, setToast] = useState(null)
 
   useEffect(() => {
-    const token = localStorage.getItem('bond_token')
+    const token = getToken()
     if (token) fetchMe(token)
     else setLoading(false)
   }, [])
@@ -24,7 +46,7 @@ export function AuthProvider({ children }) {
         const data = await res.json()
         setUser(data)
       } else {
-        localStorage.removeItem('bond_token')
+        clearToken()
       }
     } catch {}
     setLoading(false)
@@ -38,26 +60,27 @@ export function AuthProvider({ children }) {
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error)
-    localStorage.setItem('bond_token', data.token)
+    // Register always remembers (new account)
+    saveToken(data.token, true)
     setUser(data.user)
     return data.user
   }
 
-  async function login(email, password) {
+  async function login(email, password, remember = true) {
     const res = await fetch(`${API}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email, password, remember })
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error)
-    localStorage.setItem('bond_token', data.token)
+    saveToken(data.token, remember)
     setUser(data.user)
     return data.user
   }
 
   async function connectFriend(invite_code) {
-    const token = localStorage.getItem('bond_token')
+    const token = getToken()
     const res = await fetch(`${API}/auth/connect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -70,17 +93,17 @@ export function AuthProvider({ children }) {
   }
 
   function logout() {
-    localStorage.removeItem('bond_token')
+    clearToken()
     setUser(null)
   }
 
   function showToast(message, type = 'success') {
     setToast({ message, type })
-    setTimeout(() => setToast(null), 3000)
+    setTimeout(() => setToast(null), 3500)
   }
 
   async function apiFetch(path, options = {}) {
-    const token = localStorage.getItem('bond_token')
+    const token = getToken()
     const res = await fetch(`${API}${path}`, {
       ...options,
       headers: {

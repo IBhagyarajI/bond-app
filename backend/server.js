@@ -10,6 +10,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || "bond_secret_key";
 
+// ── CORS ──────────────────────────────────────────────────────────────────────
 const allowedOrigins = [process.env.FRONTEND_URL, "http://localhost:5173", "http://localhost:3000"].filter(Boolean);
 app.use(cors({
   origin: (origin, cb) => {
@@ -19,8 +20,9 @@ app.use(cors({
   },
   credentials: true
 }));
-app.use(express.json({ limit: "50mb" })); // 10mb for base64 images
+app.use(express.json({ limit: "50mb" }));
 
+// ── AUTH MIDDLEWARE ───────────────────────────────────────────────────────────
 function authenticate(req, res, next) {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ error: "No token provided" });
@@ -53,7 +55,7 @@ app.post("/api/auth/register", async (req, res) => {
       args: [name, email, hashed, invite_code, avatar_color]
     });
 
-    const token = jwt.sign({ id: Number(result.lastInsertRowid), name, email }, JWT_SECRET, { expiresIn: "30d" });
+    const token = jwt.sign({ id: Number(result.lastInsertRowid), name, email }, JWT_SECRET, { expiresIn: "90d" });
     res.json({ token, user: { id: Number(result.lastInsertRowid), name, email, invite_code, avatar_color, friend_id: null } });
   } catch (err) {
     console.error("Register error:", err);
@@ -64,7 +66,7 @@ app.post("/api/auth/register", async (req, res) => {
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
 app.post("/api/auth/login", async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, remember } = req.body;
     if (!email || !password) return res.status(400).json({ error: "Email and password required" });
 
     const result = await client.execute({ sql: "SELECT * FROM users WHERE email = ?", args: [email] });
@@ -80,15 +82,25 @@ app.post("/api/auth/login", async (req, res) => {
       friend = fr.rows[0] || null;
     }
 
-    const token = jwt.sign({ id: Number(user.id), name: user.name, email: user.email }, JWT_SECRET, { expiresIn: "30d" });
-    res.json({ token, user: { id: Number(user.id), name: user.name, email: user.email, invite_code: user.invite_code, avatar_color: user.avatar_color, friend_id: user.friend_id, bond_start_date: user.bond_start_date, friend } });
+    // remember=false → 1 day, remember=true or not set → 90 days
+    const expiresIn = remember === false ? "1d" : "90d";
+    const token = jwt.sign({ id: Number(user.id), name: user.name, email: user.email }, JWT_SECRET, { expiresIn });
+
+    res.json({
+      token,
+      user: {
+        id: Number(user.id), name: user.name, email: user.email,
+        invite_code: user.invite_code, avatar_color: user.avatar_color,
+        friend_id: user.friend_id, bond_start_date: user.bond_start_date, friend
+      }
+    });
   } catch (err) {
     console.error("Login error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ── ME ────────────────────────────────────────────────────────────────────────
+// ── GET ME ────────────────────────────────────────────────────────────────────
 app.get("/api/auth/me", authenticate, async (req, res) => {
   try {
     const result = await client.execute({ sql: "SELECT * FROM users WHERE id = ?", args: [req.userId] });
@@ -100,13 +112,18 @@ app.get("/api/auth/me", authenticate, async (req, res) => {
       const fr = await client.execute({ sql: "SELECT id, name, email, avatar_color FROM users WHERE id = ?", args: [user.friend_id] });
       friend = fr.rows[0] || null;
     }
-    res.json({ id: Number(user.id), name: user.name, email: user.email, invite_code: user.invite_code, avatar_color: user.avatar_color, friend_id: user.friend_id, bond_start_date: user.bond_start_date, friend });
+
+    res.json({
+      id: Number(user.id), name: user.name, email: user.email,
+      invite_code: user.invite_code, avatar_color: user.avatar_color,
+      friend_id: user.friend_id, bond_start_date: user.bond_start_date, friend
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ── CONNECT ───────────────────────────────────────────────────────────────────
+// ── CONNECT FRIEND ────────────────────────────────────────────────────────────
 app.post("/api/auth/connect", authenticate, async (req, res) => {
   try {
     const { invite_code } = req.body;
@@ -126,14 +143,25 @@ app.post("/api/auth/connect", authenticate, async (req, res) => {
 
     const updated = await client.execute({ sql: "SELECT * FROM users WHERE id = ?", args: [req.userId] });
     const u = updated.rows[0];
-    res.json({ message: "Bonded!", user: { id: Number(u.id), name: u.name, email: u.email, invite_code: u.invite_code, avatar_color: u.avatar_color, friend_id: u.friend_id, bond_start_date: u.bond_start_date, friend: { id: Number(friend.id), name: friend.name, email: friend.email, avatar_color: friend.avatar_color } } });
+    res.json({
+      message: "Bonded!",
+      user: {
+        id: Number(u.id), name: u.name, email: u.email,
+        invite_code: u.invite_code, avatar_color: u.avatar_color,
+        friend_id: u.friend_id, bond_start_date: u.bond_start_date,
+        friend: { id: Number(friend.id), name: friend.name, email: friend.email, avatar_color: friend.avatar_color }
+      }
+    });
   } catch (err) {
     console.error("Connect error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ── AI HEALTH (public) ────────────────────────────────────────────────────────
+// ── PASSWORD RESET ROUTES ─────────────────────────────────────────────────────
+app.use("/api/auth", require("./routes/auth"));
+
+// ── AI HEALTH CHECK (public) ──────────────────────────────────────────────────
 app.get("/api/ai/health", async (req, res) => {
   try {
     const key = process.env.GROQ_API_KEY;
@@ -151,59 +179,57 @@ app.get("/api/ai/health", async (req, res) => {
   }
 });
 
+// ── ADMIN ROUTES ──────────────────────────────────────────────────────────────
+app.post("/api/admin/clear-all", async (req, res) => {
+  try {
+    const { secret } = req.body;
+    if (!secret || secret !== process.env.ADMIN_SECRET)
+      return res.status(403).json({ error: "Wrong secret key" });
+
+    await client.execute({ sql: "DELETE FROM checkins", args: [] });
+    await client.execute({ sql: "DELETE FROM memories", args: [] });
+    await client.execute({ sql: "DELETE FROM bucket_list", args: [] });
+    await client.execute({ sql: "DELETE FROM password_resets", args: [] });
+    await client.execute({ sql: "UPDATE users SET friend_id = NULL, bond_start_date = NULL", args: [] });
+
+    res.json({ message: "All data cleared! Accounts kept, bonds broken." });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/admin/delete-user", async (req, res) => {
+  try {
+    const { secret, email } = req.body;
+    if (!secret || secret !== process.env.ADMIN_SECRET)
+      return res.status(403).json({ error: "Wrong secret key" });
+
+    const userRes = await client.execute({ sql: "SELECT * FROM users WHERE email = ?", args: [email] });
+    const user = userRes.rows[0];
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (user.friend_id) {
+      await client.execute({ sql: "UPDATE users SET friend_id = NULL, bond_start_date = NULL WHERE id = ?", args: [user.friend_id] });
+    }
+
+    await client.execute({ sql: "DELETE FROM users WHERE id = ?", args: [user.id] });
+    await client.execute({ sql: "DELETE FROM password_resets WHERE email = ?", args: [email] });
+
+    res.json({ message: `User ${email} deleted. They can re-register with the same email.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── FEATURE ROUTES ────────────────────────────────────────────────────────────
 app.use("/api/memories", authenticate, require("./routes/memories"));
 app.use("/api/bucket",   authenticate, require("./routes/bucketlist"));
 app.use("/api/ai",       authenticate, require("./routes/ai"));
 
-app.get("/health", (req, res) => res.json({ status: "ok" }));
+// ── HEALTH ────────────────────────────────────────────────────────────────────
+app.get("/health", (req, res) => res.json({ status: "ok", app: "Bond API" }));
 
-// ── ADMIN: Clear all data (protected by secret key) ──────────────────────────
-app.post("/api/admin/clear-all", async (req, res) => {
-  try {
-    const { secret } = req.body;
-    if (!secret || secret !== process.env.ADMIN_SECRET) {
-      return res.status(403).json({ error: "Wrong secret key" });
-    }
-    await client.executeMultiple(`
-      DELETE FROM checkins;
-      DELETE FROM memories;
-      DELETE FROM bucket_list;
-      DELETE FROM password_resets;
-      UPDATE users SET friend_id = NULL, bond_start_date = NULL;
-    `);
-    res.json({ message: "All data cleared! Users still exist but bonds are broken. You can now re-register or re-bond." });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── ADMIN: Delete one user completely ────────────────────────────────────────
-app.post("/api/admin/delete-user", async (req, res) => {
-  try {
-    const { secret, email } = req.body;
-    if (!secret || secret !== process.env.ADMIN_SECRET) {
-      return res.status(403).json({ error: "Wrong secret key" });
-    }
-    const userRes = await client.execute({ sql: "SELECT * FROM users WHERE email = ?", args: [email] });
-    const user = userRes.rows[0];
-    if (!user) return res.status(404).json({ error: "User not found" });
-
-    // Unbond friend if bonded
-    if (user.friend_id) {
-      await client.execute({ sql: "UPDATE users SET friend_id = NULL, bond_start_date = NULL WHERE id = ?", args: [user.friend_id] });
-    }
-
-    // Delete all their data
-    await client.execute({ sql: "DELETE FROM users WHERE id = ?", args: [user.id] });
-    await client.execute({ sql: "DELETE FROM password_resets WHERE email = ?", args: [email] });
-
-    res.json({ message: `User ${email} deleted. They can now re-register with the same email.` });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
+// ── 404 CATCH-ALL ─────────────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ error: "Not found: " + req.method + " " + req.path }));
 
 // ── START ─────────────────────────────────────────────────────────────────────
@@ -213,4 +239,3 @@ initDB().then(() => {
   console.error("Failed to init DB:", err);
   process.exit(1);
 });
-

@@ -6,6 +6,7 @@ export default function Auth() {
   const [params] = useSearchParams()
   const [mode, setMode] = useState(params.get('mode') === 'login' ? 'login' : 'register')
   const [form, setForm] = useState({ name: '', email: '', password: '' })
+  const [rememberMe, setRememberMe] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const { login, register } = useAuth()
@@ -19,7 +20,7 @@ export default function Auth() {
     setLoading(true)
     try {
       if (mode === 'login') {
-        await login(form.email, form.password)
+        await login(form.email, form.password, rememberMe)
       } else {
         await register(form.name, form.email, form.password)
       }
@@ -47,19 +48,17 @@ export default function Auth() {
         </div>
 
         <div className="card">
+          {/* Mode toggle */}
           <div style={{ display: 'flex', background: 'var(--bg3)', borderRadius: 'var(--radius-sm)', padding: '4px', marginBottom: '28px' }}>
             {['register', 'login'].map(m => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
+              <button key={m} onClick={() => { setMode(m); setError('') }}
                 style={{
                   flex: 1, padding: '8px', borderRadius: '8px', fontSize: '0.85rem', fontWeight: 500,
                   background: mode === m ? 'var(--bg2)' : 'transparent',
                   color: mode === m ? 'var(--text)' : 'var(--text3)',
                   border: mode === m ? '1px solid var(--border)' : '1px solid transparent',
                   cursor: 'pointer', transition: 'all 0.2s'
-                }}
-              >
+                }}>
                 {m === 'register' ? 'Create account' : 'Sign in'}
               </button>
             ))}
@@ -70,27 +69,50 @@ export default function Auth() {
               {mode === 'register' && (
                 <div className="input-group">
                   <label className="label">Your name</label>
-                  <input
-                    type="text" placeholder="e.g. Priya"
-                    value={form.name} onChange={e => set('name', e.target.value)} required
-                  />
+                  <input type="text" placeholder="e.g. Bhagyaraj"
+                    value={form.name} onChange={e => set('name', e.target.value)} required />
                 </div>
               )}
+
               <div className="input-group">
                 <label className="label">Email</label>
-                <input
-                  type="email" placeholder="you@example.com"
-                  value={form.email} onChange={e => set('email', e.target.value)} required
-                />
+                <input type="email" placeholder="you@example.com"
+                  value={form.email} onChange={e => set('email', e.target.value)} required />
               </div>
+
               <div className="input-group">
                 <label className="label">Password</label>
-                <input
-                  type="password" placeholder="••••••••"
-                  value={form.password} onChange={e => set('password', e.target.value)} required
-                  minLength={6}
-                />
+                <input type="password" placeholder="••••••••"
+                  value={form.password} onChange={e => set('password', e.target.value)}
+                  required minLength={6} />
               </div>
+
+              {/* Remember Me — only on login */}
+              {mode === 'login' && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none' }}>
+                    <div
+                      onClick={() => setRememberMe(r => !r)}
+                      style={{
+                        width: '20px', height: '20px', borderRadius: '5px', flexShrink: 0,
+                        border: `2px solid ${rememberMe ? 'var(--gold)' : 'var(--border)'}`,
+                        background: rememberMe ? 'var(--gold)' : 'transparent',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'all 0.15s', cursor: 'pointer'
+                      }}
+                    >
+                      {rememberMe && <span style={{ color: 'var(--bg)', fontSize: '0.75rem', fontWeight: 700, lineHeight: 1 }}>✓</span>}
+                    </div>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text2)' }}>Remember me for 90 days</span>
+                  </label>
+
+                  {/* Forgot password link */}
+                  <button type="button" onClick={() => navigate('/forgot-password')}
+                    style={{ background: 'none', border: 'none', color: 'var(--text3)', fontSize: '0.82rem', cursor: 'pointer', textDecoration: 'underline' }}>
+                    Forgot password?
+                  </button>
+                </div>
+              )}
 
               {error && (
                 <div style={{ background: 'rgba(232,80,80,0.1)', border: '1px solid rgba(232,80,80,0.2)', borderRadius: 'var(--radius-sm)', padding: '12px', color: '#e85050', fontSize: '0.85rem' }}>
@@ -98,12 +120,8 @@ export default function Auth() {
                 </div>
               )}
 
-              <button
-                type="submit"
-                className="btn btn-gold"
-                disabled={loading}
-                style={{ width: '100%', justifyContent: 'center', marginTop: '8px', padding: '14px' }}
-              >
+              <button type="submit" className="btn btn-gold" disabled={loading}
+                style={{ width: '100%', justifyContent: 'center', marginTop: '8px', padding: '14px' }}>
                 {loading ? 'Please wait...' : mode === 'login' ? 'Sign in' : 'Create account'}
               </button>
             </div>
@@ -111,7 +129,8 @@ export default function Auth() {
         </div>
 
         <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '0.8rem', color: 'var(--text3)' }}>
-          <button onClick={() => navigate('/')} style={{ color: 'var(--text3)', cursor: 'pointer', background: 'none', border: 'none', textDecoration: 'underline' }}>
+          <button onClick={() => navigate('/')}
+            style={{ color: 'var(--text3)', cursor: 'pointer', background: 'none', border: 'none', textDecoration: 'underline' }}>
             ← Back to home
           </button>
         </p>

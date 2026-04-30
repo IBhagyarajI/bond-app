@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+const API = import.meta.env.VITE_API_URL || '/api'
+
 export default function ForgotPassword() {
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState('')
   const navigate = useNavigate()
-  const API = import.meta.env.VITE_API_URL || '/api'
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -31,7 +32,8 @@ export default function ForgotPassword() {
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: '24px', background: 'radial-gradient(ellipse at 50% 0%, rgba(232,184,109,0.06) 0%, transparent 60%)'
+      padding: '24px',
+      background: 'radial-gradient(ellipse at 50% 0%, rgba(232,184,109,0.06) 0%, transparent 60%)'
     }}>
       <div style={{ width: '100%', maxWidth: '420px' }}>
         <div style={{ textAlign: 'center', marginBottom: '40px' }}>
@@ -45,21 +47,20 @@ export default function ForgotPassword() {
               <div style={{ fontSize: '3rem', marginBottom: '16px' }}>📧</div>
               <h3 style={{ fontFamily: 'var(--ff-display)', marginBottom: '12px' }}>Check your email!</h3>
               <p style={{ color: 'var(--text2)', fontSize: '0.9rem', lineHeight: 1.7, marginBottom: '24px' }}>
-                We sent a password reset link to <strong>{email}</strong>. 
-                Click the link in the email to set a new password.
+                We sent a reset link to <strong>{email}</strong>.<br/>
+                Click the link in the email to set a new password.<br/>
+                <span style={{ color: 'var(--text3)', fontSize: '0.82rem' }}>It expires in 1 hour. Check spam if you don't see it.</span>
               </p>
-              <p style={{ color: 'var(--text3)', fontSize: '0.8rem', marginBottom: '20px' }}>
-                Didn't get it? Check your spam folder or try again.
-              </p>
-              <button className="btn btn-outline" onClick={() => setSent(false)} style={{ width: '100%', justifyContent: 'center' }}>
-                Try again
+              <button className="btn btn-outline" onClick={() => setSent(false)}
+                style={{ width: '100%', justifyContent: 'center' }}>
+                Try a different email
               </button>
             </div>
           ) : (
             <form onSubmit={handleSubmit}>
               <div className="form-stack">
                 <p style={{ color: 'var(--text2)', fontSize: '0.9rem', lineHeight: 1.7, marginBottom: '8px' }}>
-                  Enter the email you used to sign up. We'll send you a link to reset your password.
+                  Enter the email you used to sign up and we'll send you a reset link.
                 </p>
                 <div className="input-group">
                   <label className="label">Email address</label>
@@ -80,7 +81,7 @@ export default function ForgotPassword() {
           )}
         </div>
 
-        <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '0.8rem', color: 'var(--text3)' }}>
+        <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '0.8rem' }}>
           <button onClick={() => navigate('/auth')}
             style={{ color: 'var(--text3)', cursor: 'pointer', background: 'none', border: 'none', textDecoration: 'underline' }}>
             ← Back to sign in
