@@ -19,7 +19,7 @@ app.use(cors({
   },
   credentials: true
 }));
-app.use(express.json({ limit: "10mb" })); // 10mb for base64 images
+app.use(express.json({ limit: "50mb" })); // 10mb for base64 images
 
 function authenticate(req, res, next) {
   const token = req.headers.authorization?.split(" ")[1];
