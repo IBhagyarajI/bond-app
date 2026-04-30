@@ -129,13 +129,23 @@ export default function Memories() {
       ) : (
         <div className="grid-3">
           {memories.map(m => {
+            // Backend already parses these into arrays — handle both cases
             let mediaItems = []
-            try { mediaItems = JSON.parse(m.media || m.images || '[]') } catch { mediaItems = [] }
-            if (!Array.isArray(mediaItems)) mediaItems = []
-            mediaItems = mediaItems.map(item => typeof item === 'string' ? { url:item, type: isVideo(item)?'video':'image' } : item)
+            if (Array.isArray(m.media) && m.media.length > 0) {
+              mediaItems = m.media.map(item => typeof item === 'string' ? { url: item, type: isVideo(item) ? 'video' : 'image' } : item)
+            } else if (Array.isArray(m.images) && m.images.length > 0) {
+              mediaItems = m.images.map(url => typeof url === 'string' ? { url, type: isVideo(url) ? 'video' : 'image' } : url)
+            } else {
+              // fallback: try parsing if somehow still a string
+              try {
+                const parsed = typeof m.media === 'string' ? JSON.parse(m.media) : (typeof m.images === 'string' ? JSON.parse(m.images) : [])
+                mediaItems = (Array.isArray(parsed) ? parsed : []).map(item => typeof item === 'string' ? { url: item, type: isVideo(item) ? 'video' : 'image' } : item)
+              } catch { mediaItems = [] }
+            }
             const first = mediaItems[0]
             return (
               <div key={m.id} className="memory-card">
+                {/* whole card opens lightbox if media exists */}
                 {first ? (
                   <div style={{ position:'relative', cursor:'pointer' }} onClick={() => setLightbox({ items:mediaItems, index:0 })}>
                     {first.type === 'video' ? (
