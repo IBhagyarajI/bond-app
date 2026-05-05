@@ -62,7 +62,7 @@ router.post('/register', async (req, res) => {
     });
 
     const user = await db.execute({
-      sql: 'SELECT id, name, email, invite_code, partner_id, avatar_color FROM users WHERE email = ?',
+      sql: 'SELECT id, name, email, invite_code, friend_id, avatar_color FROM users WHERE email = ?',
       args: [email.toLowerCase()],
     });
 
@@ -102,7 +102,7 @@ router.post('/login', async (req, res) => {
         name: user.name,
         email: user.email,
         invite_code: user.invite_code,
-        partner_id: user.partner_id,
+        friend_id: user.friend_id,
         avatar_color: user.avatar_color,
         profile_picture: user.profile_picture,
       },
@@ -124,7 +124,7 @@ router.get('/me', async (req, res) => {
 
     const db = getDb();
     const result = await db.execute({
-      sql: 'SELECT id, name, email, invite_code, partner_id, avatar_color, profile_picture FROM users WHERE id = ?',
+      sql: 'SELECT id, name, email, invite_code, friend_id, avatar_color, profile_picture FROM users WHERE id = ?',
       args: [decoded.userId],
     });
     if (result.rows.length === 0)
@@ -161,11 +161,11 @@ router.post('/connect', async (req, res) => {
     const partnerId = partner.rows[0].id;
 
     await db.execute({
-      sql: 'UPDATE users SET partner_id = ? WHERE id = ?',
+      sql: 'UPDATE users SET friend_id = ? WHERE id = ?',
       args: [partnerId, decoded.userId],
     });
     await db.execute({
-      sql: 'UPDATE users SET partner_id = ? WHERE id = ?',
+      sql: 'UPDATE users SET friend_id = ? WHERE id = ?',
       args: [decoded.userId, partnerId],
     });
 
