@@ -6,7 +6,6 @@ const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const { createClient } = require('@libsql/client');
 
-// ── DB ────────────────────────────────────────────────────
 function getDb() {
   return createClient({
     url: process.env.TURSO_DATABASE_URL,
@@ -14,7 +13,6 @@ function getDb() {
   });
 }
 
-// ── helpers ───────────────────────────────────────────────
 function makeToken(userId, rememberMe = false) {
   return jwt.sign(
     { userId },
@@ -23,18 +21,16 @@ function makeToken(userId, rememberMe = false) {
   );
 }
 
-// Gmail transporter — port 587 (STARTTLS) works on Render
+// Brevo SMTP — works on Render free tier
 function makeTransporter() {
   return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
+    host: 'smtp-relay.brevo.com',
     port: 587,
     secure: false,
-    requireTLS: true,
     auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD,
+      user: process.env.BREVO_USER,
+      pass: process.env.BREVO_PASS,
     },
-    tls: { rejectUnauthorized: false },
   });
 }
 
@@ -136,7 +132,7 @@ router.get('/me', async (req, res) => {
   }
 });
 
-// ── CONNECT (pair with friend) ────────────────────────────
+// ── CONNECT ───────────────────────────────────────────────
 router.post('/connect', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
@@ -188,12 +184,11 @@ router.post('/forgot-password', async (req, res) => {
       args: [email.toLowerCase()],
     });
 
-    // Always return success so we don't reveal if email exists
     if (result.rows.length === 0)
       return res.json({ success: true });
 
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const expiry = Date.now() + 3600000; // 1 hour
+    const expiry = Date.now() + 3600000;
 
     await db.execute({
       sql: 'UPDATE users SET reset_token = ?, reset_token_expiry = ? WHERE email = ?',
@@ -201,11 +196,10 @@ router.post('/forgot-password', async (req, res) => {
     });
 
     const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
-
     const transporter = makeTransporter();
 
     await transporter.sendMail({
-      from: `"Bond App" <${process.env.GMAIL_USER}>`,
+      from: `"Bond App" <${process.env.BREVO_USER}>`,
       to: email,
       subject: '🔐 Reset your Bond password',
       html: `
