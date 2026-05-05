@@ -4,9 +4,17 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
-const { getDb } = require('../db');
+const { createClient } = require('@libsql/client');
 
-// ── helpers ──────────────────────────────────────────────
+// ── DB ────────────────────────────────────────────────────
+function getDb() {
+  return createClient({
+    url: process.env.TURSO_DATABASE_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  });
+}
+
+// ── helpers ───────────────────────────────────────────────
 function makeToken(userId, rememberMe = false) {
   return jwt.sign(
     { userId },
@@ -20,19 +28,17 @@ function makeTransporter() {
   return nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 587,
-    secure: false,          // STARTTLS — NOT SSL
+    secure: false,
     requireTLS: true,
     auth: {
       user: process.env.GMAIL_USER,
       pass: process.env.GMAIL_APP_PASSWORD,
     },
-    tls: {
-      rejectUnauthorized: false,
-    },
+    tls: { rejectUnauthorized: false },
   });
 }
 
-// ── REGISTER ─────────────────────────────────────────────
+// ── REGISTER ──────────────────────────────────────────────
 router.post('/register', async (req, res) => {
   try {
     const { name, email, password } = req.body;
