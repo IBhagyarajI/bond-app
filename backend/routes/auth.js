@@ -2,256 +2,278 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
-const crypto = require('crypto');
 const { createClient } = require('@libsql/client');
+const crypto = require('crypto');
 
-function getDb() {
-  return createClient({
-    url: process.env.TURSO_DATABASE_URL,
-    authToken: process.env.TURSO_AUTH_TOKEN,
-  });
-}
+const db = createClient({
+  url: process.env.TURSO_DATABASE_URL,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
 
-function makeToken(userId, rememberMe = false) {
-  return jwt.sign(
-    { userId },
-    process.env.JWT_SECRET,
-    { expiresIn: rememberMe ? '90d' : '1d' }
-  );
-}
+// Helper: send email via Brevo HTTP API (no SMTP, no ports, works on Render)
+async function sendEmail({ to, subject, html }) {
+  const apiKey = process.env.BREVO_API_KEY;
+  if (!apiKey) {
+    throw new Error('BREVO_API_KEY is not set in environment variables');
+  }
 
-// Brevo SMTP — works on Render free tier
-function makeTransporter() {
-  return nodemailer.createTransport({
-    host: 'smtp-relay.brevo.com',
-    port: 587,
-    secure: false,
-    auth: {
-      user: process.env.BREVO_USER,
-      pass: process.env.BREVO_PASS,
+  const senderEmail = process.env.BREVO_SENDER_EMAIL || process.env.GMAIL_USER || 'noreply@bond-app.com';
+  const senderName = 'Bond App';
+
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'accept': 'application/json',
+      'api-key': apiKey,
+      'content-type': 'application/json',
     },
+    body: JSON.stringify({
+      sender: { name: senderName, email: senderEmail },
+      to: [{ email: to }],
+      subject: subject,
+      htmlContent: html,
+    }),
   });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(`Brevo API error: ${JSON.stringify(data)}`);
+  }
+
+  return data;
 }
 
-// ── REGISTER ──────────────────────────────────────────────
+// POST /api/auth/register
 router.post('/register', async (req, res) => {
   try {
     const { name, email, password } = req.body;
-    if (!name || !email || !password)
-      return res.status(400).json({ error: 'All fields required' });
 
-    const db = getDb();
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'Name, email, and password are required' });
+    }
+
+    // Check if email already exists
     const existing = await db.execute({
       sql: 'SELECT id FROM users WHERE email = ?',
-      args: [email.toLowerCase()],
+      args: [email],
     });
-    if (existing.rows.length > 0)
+    if (existing.rows.length > 0) {
       return res.status(400).json({ error: 'Email already registered' });
+    }
 
-    const hash = await bcrypt.hash(password, 12);
+    const hashedPassword = await bcrypt.hash(password, 10);
     const inviteCode = crypto.randomBytes(4).toString('hex').toUpperCase();
 
     await db.execute({
       sql: 'INSERT INTO users (name, email, password, invite_code) VALUES (?, ?, ?, ?)',
-      args: [name, email.toLowerCase(), hash, inviteCode],
+      args: [name, email, hashedPassword, inviteCode],
     });
 
     const user = await db.execute({
-      sql: 'SELECT id, name, email, invite_code, friend_id, avatar_color FROM users WHERE email = ?',
-      args: [email.toLowerCase()],
+      sql: 'SELECT id, name, email, invite_code, friend_id FROM users WHERE email = ?',
+      args: [email],
     });
 
-    const token = makeToken(user.rows[0].id);
-    res.json({ token, user: user.rows[0] });
+    const userData = user.rows[0];
+    const token = jwt.sign({ userId: userData.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      token,
+      user: {
+        id: userData.id,
+        name: userData.name,
+        email: userData.email,
+        inviteCode: userData.invite_code,
+        friendId: userData.friend_id,
+      },
+    });
   } catch (err) {
     console.error('Register error:', err);
-    res.status(500).json({ error: 'Server error during registration' });
+    res.status(500).json({ error: 'Registration failed' });
   }
 });
 
-// ── LOGIN ─────────────────────────────────────────────────
+// POST /api/auth/login
 router.post('/login', async (req, res) => {
   try {
-    const { email, password, rememberMe } = req.body;
-    if (!email || !password)
-      return res.status(400).json({ error: 'Email and password required' });
+    const { email, password } = req.body;
 
-    const db = getDb();
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
     const result = await db.execute({
       sql: 'SELECT * FROM users WHERE email = ?',
-      args: [email.toLowerCase()],
+      args: [email],
     });
-    if (result.rows.length === 0)
-      return res.status(400).json({ error: 'Invalid credentials' });
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
 
     const user = result.rows[0];
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid)
-      return res.status(400).json({ error: 'Invalid credentials' });
+    const validPassword = await bcrypt.compare(password, user.password);
 
-    const token = makeToken(user.id, rememberMe);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
     res.json({
       token,
       user: {
         id: user.id,
         name: user.name,
         email: user.email,
-        invite_code: user.invite_code,
-        friend_id: user.friend_id,
-        avatar_color: user.avatar_color,
-        profile_picture: user.profile_picture,
+        inviteCode: user.invite_code,
+        friendId: user.friend_id,
       },
     });
   } catch (err) {
     console.error('Login error:', err);
-    res.status(500).json({ error: 'Server error during login' });
+    res.status(500).json({ error: 'Login failed' });
   }
 });
 
-// ── ME ────────────────────────────────────────────────────
-router.get('/me', async (req, res) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return res.status(401).json({ error: 'No token' });
-
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    const db = getDb();
-    const result = await db.execute({
-      sql: 'SELECT id, name, email, invite_code, friend_id, avatar_color, profile_picture FROM users WHERE id = ?',
-      args: [decoded.userId],
-    });
-    if (result.rows.length === 0)
-      return res.status(404).json({ error: 'User not found' });
-
-    res.json({ user: result.rows[0] });
-  } catch (err) {
-    res.status(401).json({ error: 'Invalid token' });
-  }
-});
-
-// ── CONNECT ───────────────────────────────────────────────
+// POST /api/auth/connect
 router.post('/connect', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader) return res.status(401).json({ error: 'No token' });
+    if (!authHeader) return res.status(401).json({ error: 'No token provided' });
 
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decoded.userId;
 
     const { inviteCode } = req.body;
-    const db = getDb();
+    if (!inviteCode) return res.status(400).json({ error: 'Invite code is required' });
 
-    const partner = await db.execute({
-      sql: 'SELECT * FROM users WHERE invite_code = ?',
+    const friendResult = await db.execute({
+      sql: 'SELECT id FROM users WHERE invite_code = ?',
       args: [inviteCode.toUpperCase()],
     });
-    if (partner.rows.length === 0)
-      return res.status(404).json({ error: 'Invite code not found' });
 
-    if (partner.rows[0].id === decoded.userId)
+    if (friendResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Invalid invite code' });
+    }
+
+    const friendId = friendResult.rows[0].id;
+
+    if (friendId === userId) {
       return res.status(400).json({ error: "You can't connect with yourself" });
+    }
 
-    const partnerId = partner.rows[0].id;
-
+    // Connect both users to each other
     await db.execute({
       sql: 'UPDATE users SET friend_id = ? WHERE id = ?',
-      args: [partnerId, decoded.userId],
+      args: [friendId, userId],
     });
     await db.execute({
       sql: 'UPDATE users SET friend_id = ? WHERE id = ?',
-      args: [decoded.userId, partnerId],
+      args: [userId, friendId],
     });
 
-    res.json({ success: true, partner: { name: partner.rows[0].name } });
+    res.json({ message: 'Connected successfully!' });
   } catch (err) {
     console.error('Connect error:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Connection failed' });
   }
 });
 
-// ── FORGOT PASSWORD ───────────────────────────────────────
+// POST /api/auth/forgot-password
 router.post('/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
-    if (!email) return res.status(400).json({ error: 'Email required' });
+    if (!email) return res.status(400).json({ error: 'Email is required' });
 
-    const db = getDb();
     const result = await db.execute({
-      sql: 'SELECT * FROM users WHERE email = ?',
-      args: [email.toLowerCase()],
+      sql: 'SELECT id, name FROM users WHERE email = ?',
+      args: [email],
     });
 
-    if (result.rows.length === 0)
-      return res.json({ success: true });
+    // Always return success even if email not found (security best practice)
+    if (result.rows.length === 0) {
+      return res.json({ message: 'If that email exists, a reset link has been sent.' });
+    }
 
+    const user = result.rows[0];
     const resetToken = crypto.randomBytes(32).toString('hex');
-    const expiry = Date.now() + 3600000;
+    const expiry = Date.now() + 60 * 60 * 1000; // 1 hour from now
 
     await db.execute({
-      sql: 'UPDATE users SET reset_token = ?, reset_token_expiry = ? WHERE email = ?',
-      args: [resetToken, expiry, email.toLowerCase()],
+      sql: 'UPDATE users SET reset_token = ?, reset_token_expiry = ? WHERE id = ?',
+      args: [resetToken, expiry, user.id],
     });
 
-    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
-    const transporter = makeTransporter();
+    const frontendUrl = process.env.FRONTEND_URL || 'https://bond-app.vercel.app';
+    const resetLink = `${frontendUrl}/reset-password?token=${resetToken}`;
 
-    await transporter.sendMail({
-      from: `"Bond App" <${process.env.BREVO_USER}>`,
+    await sendEmail({
       to: email,
-      subject: '🔐 Reset your Bond password',
+      subject: '🔐 Reset your Bond App password',
       html: `
-        <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;background:#1a1a1a;color:#f5f5f5;border-radius:12px;">
-          <h2 style="color:#c9a84c;text-align:center;">Bond</h2>
-          <p>Hi there,</p>
-          <p>Someone requested a password reset for your Bond account. Click the button below to set a new password:</p>
-          <div style="text-align:center;margin:32px 0;">
-            <a href="${resetUrl}" style="background:#c9a84c;color:#1a1a1a;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:bold;">Reset Password</a>
-          </div>
-          <p style="font-size:13px;color:#aaa;">This link expires in 1 hour. If you didn't request this, ignore this email.</p>
+        <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;">
+          <h2 style="color: #6366f1;">Bond App — Password Reset</h2>
+          <p>Hi ${user.name},</p>
+          <p>Someone requested a password reset for your account. If that was you, click the button below:</p>
+          <a href="${resetLink}" style="
+            display: inline-block;
+            background: #6366f1;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: bold;
+            margin: 16px 0;
+          ">Reset My Password</a>
+          <p style="color: #888; font-size: 13px;">This link expires in 1 hour. If you didn't request this, just ignore this email.</p>
         </div>
       `,
     });
 
-    res.json({ success: true });
+    res.json({ message: 'If that email exists, a reset link has been sent.' });
   } catch (err) {
     console.error('Forgot password error:', err);
     res.status(500).json({ error: 'Failed to send reset email. Please try again.' });
   }
 });
 
-// ── RESET PASSWORD ────────────────────────────────────────
+// POST /api/auth/reset-password
 router.post('/reset-password', async (req, res) => {
   try {
     const { token, password } = req.body;
-    if (!token || !password)
-      return res.status(400).json({ error: 'Token and password required' });
+    if (!token || !password) {
+      return res.status(400).json({ error: 'Token and new password are required' });
+    }
 
-    const db = getDb();
     const result = await db.execute({
-      sql: 'SELECT * FROM users WHERE reset_token = ?',
+      sql: 'SELECT id, reset_token_expiry FROM users WHERE reset_token = ?',
       args: [token],
     });
 
-    if (result.rows.length === 0)
+    if (result.rows.length === 0) {
       return res.status(400).json({ error: 'Invalid or expired reset link' });
+    }
 
     const user = result.rows[0];
-    if (Date.now() > Number(user.reset_token_expiry))
-      return res.status(400).json({ error: 'Reset link has expired. Please request a new one.' });
 
-    const hash = await bcrypt.hash(password, 12);
+    if (Date.now() > user.reset_token_expiry) {
+      return res.status(400).json({ error: 'Reset link has expired. Please request a new one.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
     await db.execute({
       sql: 'UPDATE users SET password = ?, reset_token = NULL, reset_token_expiry = NULL WHERE id = ?',
-      args: [hash, user.id],
+      args: [hashedPassword, user.id],
     });
 
-    res.json({ success: true });
+    res.json({ message: 'Password reset successfully! You can now log in.' });
   } catch (err) {
     console.error('Reset password error:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Password reset failed' });
   }
 });
 
