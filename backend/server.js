@@ -11,6 +11,7 @@ const {
 } = require("./middleware");
 
 const app        = express();
+app.set('trust proxy', 1);
 const PORT       = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || "bond_secret_key";
 
