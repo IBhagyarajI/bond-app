@@ -11,6 +11,7 @@ import Support from './pages/Support'
 import ForgotPassword from './pages/ForgotPassword'
 import Admin from './pages/Admin'
 import ResetPassword from './pages/ResetPassword'
+import Profile from './pages/Profile'
 
 export default function App() {
   return (
@@ -25,6 +26,7 @@ export default function App() {
             <Route path="bucket" element={<BucketList />} />
             <Route path="checkin" element={<CheckIn />} />
             <Route path="support" element={<Support />} />
+            <Route path="profile" element={<Profile />} />
           </Route>
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/admin" element={<Admin />} />

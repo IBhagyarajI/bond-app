@@ -172,6 +172,7 @@ app.post("/api/auth/connect", authenticate, async (req, res) => {
 
 // ── PASSWORD RESET ROUTES ─────────────────────────────────────────────────────
 app.use("/api/auth", authLimiter, require("./routes/auth"));
+app.use('/api/users', require('./routes/users'));
 
 // ── AI HEALTH (public) ────────────────────────────────────────────────────────
 app.get("/api/ai/health", async (req, res) => {
