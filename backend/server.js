@@ -11,7 +11,6 @@ const {
 } = require("./middleware");
 
 const app        = express();
-app.set('trust proxy', 1);
 const PORT       = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || "bond_secret_key";
 
@@ -172,7 +171,6 @@ app.post("/api/auth/connect", authenticate, async (req, res) => {
 
 // ── PASSWORD RESET ROUTES ─────────────────────────────────────────────────────
 app.use("/api/auth", authLimiter, require("./routes/auth"));
-app.use('/api/users', require('./routes/users'));
 
 // ── AI HEALTH (public) ────────────────────────────────────────────────────────
 app.get("/api/ai/health", async (req, res) => {
@@ -225,6 +223,7 @@ app.post("/api/admin/delete-user", async (req, res) => {
 });
 
 // ── FEATURE ROUTES ────────────────────────────────────────────────────────────
+app.use("/api/auth",       authenticate, require("./routes/profile"));
 app.use("/api/memories", authenticate, require("./routes/memories"));
 app.use("/api/bucket",   authenticate, require("./routes/bucketlist"));
 app.use("/api/ai",       authenticate, aiLimiter, require("./routes/ai"));
