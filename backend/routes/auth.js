@@ -13,14 +13,14 @@ async function sendEmail({ to, subject, html }) {
     headers: { 'accept': 'application/json', 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' },
     body: JSON.stringify({ sender: { name: 'Bond App', email: process.env.BREVO_SENDER_EMAIL }, to: [{ email: to }], subject, htmlContent: html }),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(JSON.stringify(data));
+  if (!res.ok) throw new Error(await res.text());
 }
 
+// Only use columns we KNOW exist — no avatar_color or bond_start_date
 async function getUserById(id) {
   const result = await db.execute({
-    sql: `SELECT u.id, u.name, u.email, u.invite_code, u.friend_id, u.profile_pic, u.avatar_color, u.bond_start_date,
-               f.name as friend_name, f.profile_pic as friend_profile_pic, f.avatar_color as friend_avatar_color
+    sql: `SELECT u.id, u.name, u.email, u.invite_code, u.friend_id, u.profile_pic,
+                 f.name as friend_name, f.profile_pic as friend_profile_pic
           FROM users u LEFT JOIN users f ON u.friend_id = f.id WHERE u.id = ?`,
     args: [id],
   });
@@ -29,20 +29,29 @@ async function getUserById(id) {
   return {
     id: u.id, name: u.name, email: u.email,
     invite_code: u.invite_code, friend_id: u.friend_id,
-    profile_pic: u.profile_pic, avatar_color: u.avatar_color, bond_start_date: u.bond_start_date,
-    friend: u.friend_id ? { name: u.friend_name, profile_pic: u.friend_profile_pic, avatar_color: u.friend_avatar_color } : null,
+    profile_pic: u.profile_pic,
+    friend: u.friend_id ? { name: u.friend_name, profile_pic: u.friend_profile_pic } : null,
   };
 }
 
+// GET /api/auth/me
 router.get('/me', async (req, res) => {
+  const header = req.headers.authorization;
+  if (!header) return res.status(401).json({ error: 'No token' });
+  let decoded;
   try {
-    const header = req.headers.authorization;
-    if (!header) return res.status(401).json({ error: 'No token' });
-    const decoded = jwt.verify(header.split(' ')[1], process.env.JWT_SECRET);
+    decoded = jwt.verify(header.split(' ')[1], process.env.JWT_SECRET);
+  } catch {
+    return res.status(401).json({ error: 'Invalid token' }); // ONLY 401 for bad JWT
+  }
+  try {
     const user = await getUserById(decoded.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json(user);
-  } catch (err) { console.error('Me error:', err); res.status(401).json({ error: 'Invalid token' }); }
+  } catch (err) {
+    console.error('Me SQL error:', err);
+    res.status(500).json({ error: 'Server error' }); // 500 = keep token, don't log out
+  }
 });
 
 router.post('/register', async (req, res) => {
@@ -87,9 +96,8 @@ router.post('/connect', async (req, res) => {
     if (!friendResult.rows.length) return res.status(404).json({ error: 'Invalid invite code' });
     const friendId = friendResult.rows[0].id;
     if (friendId === decoded.userId) return res.status(400).json({ error: "Can't connect with yourself" });
-    const now = new Date().toISOString().slice(0, 10);
-    await db.execute({ sql: 'UPDATE users SET friend_id = ?, bond_start_date = ? WHERE id = ?', args: [friendId, now, decoded.userId] });
-    await db.execute({ sql: 'UPDATE users SET friend_id = ?, bond_start_date = ? WHERE id = ?', args: [decoded.userId, now, friendId] });
+    await db.execute({ sql: 'UPDATE users SET friend_id = ? WHERE id = ?', args: [friendId, decoded.userId] });
+    await db.execute({ sql: 'UPDATE users SET friend_id = ? WHERE id = ?', args: [decoded.userId, friendId] });
     const user = await getUserById(decoded.userId);
     res.json({ message: 'Connected!', user });
   } catch (err) { console.error('Connect error:', err); res.status(500).json({ error: 'Connection failed' }); }
