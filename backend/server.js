@@ -224,6 +224,7 @@ app.post("/api/admin/delete-user", async (req, res) => {
 
 // ── FEATURE ROUTES ────────────────────────────────────────────────────────────
 app.use("/api/auth",       authenticate, require("./routes/profile"));
+app.use("/api/users",       authenticate, require("./routes/profile"));
 app.use("/api/memories", authenticate, require("./routes/memories"));
 app.use("/api/bucket",   authenticate, require("./routes/bucketlist"));
 app.use("/api/ai",       authenticate, aiLimiter, require("./routes/ai"));

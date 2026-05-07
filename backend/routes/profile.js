@@ -2,13 +2,12 @@ const express = require("express");
 const router  = express.Router();
 const { client } = require("../db");
 
-// PATCH /api/auth/update-profile
-router.patch("/update-profile", async (req, res) => {
+async function updateProfile(req, res) {
   try {
     const updates = [];
     const args    = [];
-
-    const { name, photo_url } = req.body;
+    const { name, photo_url, url } = req.body;
+    const photoVal = photo_url !== undefined ? photo_url : url;
 
     if (name !== undefined) {
       const clean = String(name).trim().slice(0, 60);
@@ -16,30 +15,23 @@ router.patch("/update-profile", async (req, res) => {
       updates.push("name = ?");
       args.push(clean);
     }
-
-    if (photo_url !== undefined) {
+    if (photoVal !== undefined) {
       updates.push("photo_url = ?");
-      args.push(photo_url || null);
+      args.push(photoVal || null);
     }
-
     if (updates.length === 0)
       return res.status(400).json({ error: "Nothing to update" });
 
     args.push(req.userId);
-    await client.execute({
-      sql:  `UPDATE users SET ${updates.join(", ")} WHERE id = ?`,
-      args,
-    });
+    await client.execute({ sql: `UPDATE users SET ${updates.join(", ")} WHERE id = ?`, args });
 
     const result = await client.execute({ sql: "SELECT * FROM users WHERE id = ?", args: [req.userId] });
     const user   = result.rows[0];
-
-    let friend = null;
+    let friend   = null;
     if (user.friend_id) {
       const fr = await client.execute({ sql: "SELECT id, name, email, avatar_color, photo_url FROM users WHERE id = ?", args: [user.friend_id] });
       friend = fr.rows[0] || null;
     }
-
     res.json({
       id: Number(user.id), name: user.name, email: user.email,
       invite_code: user.invite_code, avatar_color: user.avatar_color,
@@ -50,6 +42,12 @@ router.patch("/update-profile", async (req, res) => {
     console.error("Update profile error:", err.message);
     res.status(500).json({ error: err.message });
   }
-});
+}
+
+// New endpoint
+router.patch("/update-profile",       updateProfile);
+// Old endpoint — backward compat with older APK builds
+router.post("/upload-profile-pic",    updateProfile);
+router.patch("/update-name",          updateProfile);
 
 module.exports = router;
