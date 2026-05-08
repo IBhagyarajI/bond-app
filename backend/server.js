@@ -98,7 +98,7 @@ app.post("/api/auth/login", authLimiter, validateAuth, async (req, res) => {
 
     let friend = null;
     if (user.friend_id) {
-      const fr = await client.execute({ sql: "SELECT id, name, email, avatar_color FROM users WHERE id = ?", args: [user.friend_id] });
+      const fr = await client.execute({ sql: "SELECT id, name, email, avatar_color, photo_url FROM users WHERE id = ?", args: [user.friend_id] });
       friend = fr.rows[0] || null;
     }
 
@@ -110,6 +110,7 @@ app.post("/api/auth/login", authLimiter, validateAuth, async (req, res) => {
       user: {
         id: Number(user.id), name: user.name, email: user.email,
         invite_code: user.invite_code, avatar_color: user.avatar_color,
+        photo_url: user.photo_url || null,
         friend_id: user.friend_id, bond_start_date: user.bond_start_date, friend,
       },
     });
@@ -128,7 +129,7 @@ app.get("/api/auth/me", authenticate, async (req, res) => {
 
     let friend = null;
     if (user.friend_id) {
-      const fr = await client.execute({ sql: "SELECT id, name, email, avatar_color FROM users WHERE id = ?", args: [user.friend_id] });
+      const fr = await client.execute({ sql: "SELECT id, name, email, avatar_color, photo_url FROM users WHERE id = ?", args: [user.friend_id] });
       friend = fr.rows[0] || null;
     }
     res.json({ id: Number(user.id), name: user.name, email: user.email, invite_code: user.invite_code, avatar_color: user.avatar_color, friend_id: user.friend_id, bond_start_date: user.bond_start_date, friend });
