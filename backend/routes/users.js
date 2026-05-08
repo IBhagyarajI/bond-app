@@ -24,7 +24,13 @@ function auth(req, res, next) {
   catch { res.status(401).json({ error: 'Invalid token' }); }
 }
 
+// POST /api/users/upload-profile-pic
+// Handles TWO cases:
+//   1. Mobile — sends JSON { photo_url } after uploading directly to Cloudinary
+//   2. Web    — sends multipart file, we upload to Cloudinary here
 router.post('/upload-profile-pic', auth, (req, res, next) => {
+  const ct = req.headers['content-type'] || '';
+  if (ct.includes('application/json')) return next(); // mobile: skip multer
   upload.single('photo')(req, res, (err) => {
     if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE')
       return res.status(400).json({ error: 'Image too large. Max 5MB.' });
@@ -33,6 +39,14 @@ router.post('/upload-profile-pic', auth, (req, res, next) => {
   });
 }, async (req, res) => {
   try {
+    // Mobile path: JSON body with photo_url already uploaded to Cloudinary
+    if (req.body && req.body.photo_url !== undefined) {
+      const url = req.body.photo_url; // null = remove photo, string = set photo
+      await db.execute({ sql: 'UPDATE users SET profile_pic = ? WHERE id = ?', args: [url, req.userId] });
+      return res.json({ url });
+    }
+
+    // Web path: file upload, send to Cloudinary ourselves
     if (!req.file) return res.status(400).json({ error: 'No image selected' });
     const result = await new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
