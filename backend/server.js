@@ -17,7 +17,6 @@ const JWT_SECRET = process.env.JWT_SECRET || "bond_secret_key";
 if (!process.env.JWT_SECRET) console.warn("⚠️  JWT_SECRET not set — using default (unsafe in production)");
 if (!process.env.GROQ_API_KEY) console.warn("⚠️  GROQ_API_KEY not set");
 
-// ── CORS ──────────────────────────────────────────────────────────────────────
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   "http://localhost:5173",
@@ -36,11 +35,8 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: "50mb" }));
-
-// Apply general rate limit to everything
 app.use(generalLimiter);
 
-// ── AUTH MIDDLEWARE ───────────────────────────────────────────────────────────
 function authenticate(req, res, next) {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ error: "No token provided" });
@@ -55,7 +51,6 @@ function authenticate(req, res, next) {
 
 const AVATAR_COLORS = ["#e8b86d","#e87d6d","#6de8b8","#6d9ee8","#c46de8","#e86dc4","#8de86d","#e8d36d"];
 
-// ── REGISTER ─────────────────────────────────────────────────────────────────
 app.post("/api/auth/register", authLimiter, validateAuth, async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -65,7 +60,7 @@ app.post("/api/auth/register", authLimiter, validateAuth, async (req, res) => {
     const existing = await client.execute({ sql: "SELECT id FROM users WHERE email = ?", args: [email] });
     if (existing.rows[0]) return res.status(409).json({ error: "Email already registered" });
 
-    const hashed      = await bcrypt.hash(password, 12); // 12 rounds — stronger than 10
+    const hashed      = await bcrypt.hash(password, 12);
     const invite_code = uuidv4().slice(0, 8).toUpperCase();
     const avatar_color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
 
@@ -82,7 +77,6 @@ app.post("/api/auth/register", authLimiter, validateAuth, async (req, res) => {
   }
 });
 
-// ── LOGIN ─────────────────────────────────────────────────────────────────────
 app.post("/api/auth/login", authLimiter, validateAuth, async (req, res) => {
   try {
     const { email, password, remember } = req.body;
@@ -90,7 +84,6 @@ app.post("/api/auth/login", authLimiter, validateAuth, async (req, res) => {
 
     const result = await client.execute({ sql: "SELECT * FROM users WHERE email = ?", args: [email] });
     const user = result.rows[0];
-    // Don't reveal if email exists — same error for both cases
     if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
     const valid = await bcrypt.compare(password, user.password);
@@ -120,7 +113,6 @@ app.post("/api/auth/login", authLimiter, validateAuth, async (req, res) => {
   }
 });
 
-// ── GET ME ────────────────────────────────────────────────────────────────────
 app.get("/api/auth/me", authenticate, async (req, res) => {
   try {
     const result = await client.execute({ sql: "SELECT * FROM users WHERE id = ?", args: [req.userId] });
@@ -138,7 +130,6 @@ app.get("/api/auth/me", authenticate, async (req, res) => {
   }
 });
 
-// ── CONNECT FRIEND ────────────────────────────────────────────────────────────
 app.post("/api/auth/connect", authenticate, async (req, res) => {
   try {
     const invite_code = String(req.body.invite_code || "").toUpperCase().trim().slice(0, 8);
@@ -170,25 +161,8 @@ app.post("/api/auth/connect", authenticate, async (req, res) => {
   }
 });
 
-// ── SAVE PUSH TOKEN ──────────────────────────────────────────────────────────
-app.post("/api/auth/save-push-token", authenticate, async (req, res) => {
-  try {
-    const { push_token } = req.body;
-    if (!push_token) return res.status(400).json({ error: "push_token required" });
-    await client.execute({
-      sql:  "UPDATE users SET push_token = ? WHERE id = ?",
-      args: [push_token, req.userId],
-    });
-    res.json({ message: "Push token saved" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── PASSWORD RESET ROUTES ─────────────────────────────────────────────────────
 app.use("/api/auth", authLimiter, require("./routes/auth"));
 
-// ── AI HEALTH (public) ────────────────────────────────────────────────────────
 app.get("/api/ai/health", async (req, res) => {
   try {
     const key = process.env.GROQ_API_KEY;
@@ -206,7 +180,6 @@ app.get("/api/ai/health", async (req, res) => {
   }
 });
 
-// ── ADMIN ROUTES ──────────────────────────────────────────────────────────────
 app.post("/api/admin/clear-all", async (req, res) => {
   try {
     const { secret } = req.body;
@@ -238,26 +211,20 @@ app.post("/api/admin/delete-user", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── FEATURE ROUTES ────────────────────────────────────────────────────────────
-app.use("/api/auth",       authenticate, require("./routes/profile"));
-app.use("/api/users",       authenticate, require("./routes/profile"));
-app.use("/api/memories", authenticate, require("./routes/memories"));
-app.use("/api/bucket",   authenticate, require("./routes/bucketlist"));
-app.use("/api/ai",       authenticate, aiLimiter, require("./routes/ai"));
+app.use("/api/auth",    authenticate, require("./routes/profile"));
+app.use("/api/users",   authenticate, require("./routes/profile"));
+app.use("/api/memories",authenticate, require("./routes/memories"));
+app.use("/api/bucket",  authenticate, require("./routes/bucketlist"));
+app.use("/api/ai",      authenticate, aiLimiter, require("./routes/ai"));
+app.use("/api/glowup",  authenticate, require("./routes/glowup"));
 
-// ── HEALTH ────────────────────────────────────────────────────────────────────
 app.get("/health", (req, res) => res.json({ status: "ok", app: "Bond API" }));
-
-// ── 404 — always JSON ─────────────────────────────────────────────────────────
 app.use((req, res) => res.status(404).json({ error: "Not found: " + req.method + " " + req.path }));
-
-// ── GLOBAL ERROR HANDLER ──────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
   console.error("Unhandled error:", err.message);
   res.status(500).json({ error: "Internal server error" });
 });
 
-// ── START ─────────────────────────────────────────────────────────────────────
 initDB().then(() => {
   app.listen(PORT, () => console.log(`🔗 Bond API running on http://localhost:${PORT}`));
 }).catch(err => {

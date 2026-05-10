@@ -12,6 +12,7 @@ import ForgotPassword from './pages/ForgotPassword'
 import Admin from './pages/Admin'
 import ResetPassword from './pages/ResetPassword'
 import Profile from './pages/Profile'
+import GlowUp from './pages/GlowUp'
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
             <Route path="checkin" element={<CheckIn />} />
             <Route path="support" element={<Support />} />
             <Route path="profile" element={<Profile />} />
+            <Route path="glowup" element={<GlowUp />} />
           </Route>
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/admin" element={<Admin />} />

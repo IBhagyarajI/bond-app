@@ -1,14 +1,18 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+
 const NAV = [
-  { path: '/app', icon: '⌂', label: 'Home' },
+  { path: '/app',          icon: '⌂',  label: 'Home' },
   { path: '/app/memories', icon: '📸', label: 'Memories' },
-  { path: '/app/bucket', icon: '🎯', label: 'Bucket List' },
-  { path: '/app/checkin', icon: '💬', label: 'Check-in' },
-  { path: '/app/support', icon: '🤝', label: 'Support' },
-  { path: '/app/profile', icon: '👤', label: 'Profile' },
+  { path: '/app/bucket',   icon: '🎯', label: 'Bucket List' },
+  { path: '/app/checkin',  icon: '💬', label: 'Check-in' },
+  { path: '/app/support',  icon: '🤝', label: 'Support' },
+  { path: '/app/glowup',   icon: '✨', label: 'Glow Up' },
+  { path: '/app/profile',  icon: '👤', label: 'Profile' },
 ]
+
 function initials(name) { return name ? name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : '?' }
+
 export default function Sidebar() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -27,7 +31,7 @@ export default function Sidebar() {
       <div className="sidebar-bottom">
         <div className="user-card" onClick={() => navigate('/app/profile')} style={{ cursor: 'pointer' }}>
           <div className="avatar" style={{ background: user?.avatar_color || 'var(--gold)', overflow: 'hidden', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {user?.profile_pic ? <img src={user.profile_pic} alt="pfp" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials(user?.name)}
+            {user?.photo_url ? <img src={user.photo_url} alt="pfp" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials(user?.name)}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="user-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.name}</div>
