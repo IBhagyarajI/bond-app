@@ -170,6 +170,21 @@ app.post("/api/auth/connect", authenticate, async (req, res) => {
   }
 });
 
+// ── SAVE PUSH TOKEN ──────────────────────────────────────────────────────────
+app.post("/api/auth/save-push-token", authenticate, async (req, res) => {
+  try {
+    const { push_token } = req.body;
+    if (!push_token) return res.status(400).json({ error: "push_token required" });
+    await client.execute({
+      sql:  "UPDATE users SET push_token = ? WHERE id = ?",
+      args: [push_token, req.userId],
+    });
+    res.json({ message: "Push token saved" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── PASSWORD RESET ROUTES ─────────────────────────────────────────────────────
 app.use("/api/auth", authLimiter, require("./routes/auth"));
 
